@@ -2,6 +2,8 @@
 import { Config, Live2DSprite, LogLevel } from 'easy-live2d'
 import { Application, Ticker } from 'pixi.js'
 import { onMounted, onUnmounted, ref, reactive } from 'vue'
+import { WebSocketService, type WSMessage } from '../services/WebSocketService'
+import { AudioService } from '../services/AudioService'
 
 // 聊天相关类型定义
 interface ChatMessage {
@@ -13,16 +15,6 @@ interface ChatMessage {
   audioData?: string
 }
 
-// WebSocket 消息类型
-interface WSMessage {
-  type: 'text_input' | 'audio_input' | 'ai_response' | 'system_message'
-  payload: {
-    text?: string
-    audio_encoded_base64?: string
-    session_id: string
-  }
-}
-
 const canvasRef = ref<HTMLCanvasElement>()
 const app = new Application()
 const showChatHistory = ref(false)
@@ -30,68 +22,22 @@ const messageInput = ref('')
 const chatHistory = reactive<ChatMessage[]>([])
 const characterName = ref('日和')
 
-// WebSocket相关
-const socket = ref<WebSocket | null>(null)
-const isConnected = ref(false)
-const isPlayingAudio = ref(false)
-const audioPlayer = ref<HTMLAudioElement | null>(null)
-
-
-// WebSocket服务器地址
-const wsServerUrl = 'ws://localhost:8765' // 根据实际后端地址修改
+// 创建服务实例
 const sessionId = 'webtest0721' // 用于存储会话ID, 目前使用唯一sessionID进行测试
+const wsService = new WebSocketService('ws://localhost:8765', sessionId)
+const audioService = new AudioService()
 
-
-// 初始化WebSocket连接
-const initWebSocket = () => {
-  socket.value = new WebSocket(wsServerUrl)
-  
-  socket.value.onopen = () => {
-    console.log('WebSocket连接已建立')
-    isConnected.value = true
-  }
-  
-  socket.value.onmessage = (event) => {
-    try {
-      const data: WSMessage = JSON.parse(event.data)
-      handleWebSocketMessage(data)
-    } catch (error) {
-      console.error('解析WebSocket消息时出错:', error)
-    }
-  }
-  
-  socket.value.onclose = () => {
-    console.log('WebSocket连接已关闭')
-    isConnected.value = false
-    // 可以在这里添加重连逻辑
-    setTimeout(() => {
-      if (!isConnected.value) {
-        console.log('尝试重新连接WebSocket...')
-        initWebSocket()
-      }
-    }, 3000)
-  }
-  
-  socket.value.onerror = (error) => {
-    console.error('WebSocket错误:', error)
-    isConnected.value = false
-  }
+// 设置音频播放事件回调
+audioService.onPlay = () => {
+  live2DSprite.startMotion({ group: 'Idle', no: 1, priority: 3 }) // 播放说话动作
 }
 
-// 发送WebSocket消息
-const sendWebSocketMessage = (type: 'text_input' | 'audio_input', payload: { text?: string; audio_encoded_base64?: string, session_id: string}) => {
-  if (!socket.value || socket.value.readyState !== WebSocket.OPEN) {
-    console.error('WebSocket未连接，无法发送消息')
-    return false
-  }
-  
-  const message: WSMessage = { type, payload }
-  socket.value.send(JSON.stringify(message))
-  return true
+audioService.onEnded = () => {
+  live2DSprite.startMotion({ group: 'Idle', no: 0, priority: 3 }) // 播放默认动作
 }
 
-// 处理接收到的WebSocket消息
-const handleWebSocketMessage = (message: WSMessage) => {
+// 设置WebSocket消息处理回调
+wsService.onMessage = (message: WSMessage) => {
   console.log('收到WebSocket消息:', message)
   
   switch (message.type) {
@@ -109,7 +55,7 @@ const handleWebSocketMessage = (message: WSMessage) => {
       break
       
     case 'system_message':
-      
+      // 处理系统消息
       break
       
     default:
@@ -145,36 +91,7 @@ const handleCharacterAudioResponse = (audioBase64: string, text?: string) => {
 
 // 播放Base64编码的音频
 const playAudio = (audioBase64: string) => {
-  if (isPlayingAudio.value) {
-    // 如果有正在播放的音频，先停止
-    if (audioPlayer.value) {
-      audioPlayer.value.pause()
-      audioPlayer.value.currentTime = 0
-    }
-  }
-  
-  try {
-    if (!audioPlayer.value) {
-      audioPlayer.value = new Audio()
-    }
-    
-    audioPlayer.value.src = `data:audio/wav;base64,${audioBase64}`
-    audioPlayer.value.onplay = () => {
-      isPlayingAudio.value = true
-      live2DSprite.startMotion({ group: 'Idle', no: 1, priority: 3 }) // 播放说话动作
-    }
-    audioPlayer.value.onended = () => {
-      isPlayingAudio.value = false
-      live2DSprite.startMotion({ group: 'Idle', no: 0, priority: 3 }) // 播放默认动作
-    }
-    audioPlayer.value.play().catch(error => {
-      console.error('播放音频失败:', error)
-      isPlayingAudio.value = false
-    })
-  } catch (error) {
-    console.error('创建音频播放器时出错:', error)
-    isPlayingAudio.value = false
-  }
+  audioService.playAudio(audioBase64)
 }
 
 // 设置 Config 默认配置
@@ -204,8 +121,8 @@ const addUserMessage = (text: string) => {
   messageInput.value = ''
   
   // 通过WebSocket发送消息到后端
-  if (isConnected.value) {
-    sendWebSocketMessage('text_input', { text: text, session_id: sessionId })
+  if (wsService.isConnected.value) {
+    wsService.send('text_input', { text })
   } else {
     console.warn('WebSocket未连接，使用本地模拟回复')
     // 如果WebSocket未连接，使用本地模拟回复（保留原有功能作为备用）
@@ -264,17 +181,21 @@ onMounted(async () => {
     live2DSprite.width = canvasRef.value.clientWidth * window.devicePixelRatio
     live2DSprite.height = canvasRef.value.clientHeight * window.devicePixelRatio
     app.stage.addChild(live2DSprite)
+    
     // 初始表情和动作
     live2DSprite.setExpression({
       expressionId: 'F01',
     })
+    
     live2DSprite.startMotion({
       group: 'Idle',
       no: 0,
       priority: 3,
     })
+    
     // 初始化 WebSocket 连接
-    initWebSocket()
+    wsService.connect()
+    
     // 添加一条欢迎消息
     addCharacterMessage(`你好呀！我是${characterName.value}，很高兴认识你！`)
   }
@@ -282,14 +203,11 @@ onMounted(async () => {
 
 onUnmounted(() => {
   // 关闭 WebSocket 连接
-  if (socket.value && (socket.value.readyState === WebSocket.OPEN || socket.value.readyState === WebSocket.CONNECTING)) {
-    socket.value.close()
-  }
+  wsService.disconnect()
+  
   // 停止音频播放
-  if (audioPlayer.value) {
-    audioPlayer.value.pause()
-    audioPlayer.value = null
-  }
+  audioService.destroy()
+  
   // 释放 Live2D 实例
   live2DSprite.destroy()
 })
@@ -303,8 +221,8 @@ onUnmounted(() => {
     />
     
     <!-- 连接状态指示器 -->
-    <div class="connection-status" :class="{ 'connected': isConnected }">
-      {{ isConnected ? '已连接' : '未连接' }}
+    <div class="connection-status" :class="{ 'connected': wsService.isConnected.value }">
+      {{ wsService.isConnected.value ? '已连接' : '未连接' }}
     </div>
     
     <!-- Galgame 风格聊天框 -->
@@ -320,9 +238,9 @@ onUnmounted(() => {
             v-if="chatHistory[chatHistory.length - 1].hasAudio && chatHistory[chatHistory.length - 1].audioData" 
             @click="playAudio(chatHistory[chatHistory.length - 1].audioData as string)" 
             class="audio-play-button"
-            :class="{ 'playing': isPlayingAudio }"
+            :class="{ 'playing': audioService.isPlaying.value }"
           >
-            <span v-if="isPlayingAudio">🔊</span>
+            <span v-if="audioService.isPlaying.value">🔊</span>
             <span v-else>🔈</span>
           </button>
         </div>
