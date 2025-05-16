@@ -11,7 +11,7 @@ export class AudioService {
     this._audioPlayer = null
   }
   
-  playAudio(audioBase64: string): void {
+  playAudio(audioBase64: string, audio_format: string='wav'): void {
     if (this.isPlaying.value) {
       // 如果有正在播放的音频，先停止
       this.stopAudio()
@@ -22,7 +22,7 @@ export class AudioService {
         this._audioPlayer = new Audio()
       }
       
-      this._audioPlayer.src = `data:audio/wav;base64,${audioBase64}`
+      this._audioPlayer.src = `data:audio/${audio_format};base64,${audioBase64}`
       
       this._audioPlayer.onplay = () => {
         this.isPlaying.value = true

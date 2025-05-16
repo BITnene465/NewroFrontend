@@ -21,6 +21,7 @@ const showChatHistory = ref(false)
 const messageInput = ref('')
 const chatHistory = reactive<ChatMessage[]>([])
 const characterName = ref('日和')
+const isMuted = ref(true) // 默认静音状态
 
 // 创建服务实例
 const sessionId = 'webtest0721' // 用于存储会话ID, 目前使用唯一sessionID进行测试
@@ -44,9 +45,9 @@ wsService.onMessage = (message: WSMessage) => {
     case 'ai_response':
       if (message.payload.text) {
         // 收到ai回复
-        if (message.payload.audio_encoded_base64) {
+        if (message.payload.audio) {
           // 如果同时收到了文本和语音，先显示文本
-          handleCharacterAudioResponse(message.payload.audio_encoded_base64, message.payload.text)
+          handleCharacterAudioResponse(message.payload.audio.audio_data, message.payload.text)
         } else {
           // 只收到文本
           handleCharacterTextResponse(message.payload.text)
@@ -54,7 +55,7 @@ wsService.onMessage = (message: WSMessage) => {
       }
       break
       
-    case 'system_message':
+    case 'system_status':
       // 处理系统消息
       break
       
@@ -83,15 +84,26 @@ const handleCharacterAudioResponse = (audioBase64: string, text?: string) => {
   if (text) {
     addCharacterMessage(text, true, audioBase64)
   } else { // 这种情况不会出现
-    addCharacterMessage('语音消息,无文本', true, audioBase64)
+    addCharacterMessage('[语音消息]', true, audioBase64)
   }
-  // 播放语音
-  playAudio(audioBase64)
+  // 只有在非静音状态下才自动播放语音
+  if (!isMuted.value) {
+    playAudio(audioBase64)
+  }
 }
 
 // 播放Base64编码的音频
-const playAudio = (audioBase64: string) => {
-  audioService.playAudio(audioBase64)
+const playAudio = (audioBase64: string, audio_format: string = 'wav') => {
+  audioService.playAudio(audioBase64, audio_format)
+}
+
+// 切换静音状态
+const toggleMute = () => {
+  isMuted.value = !isMuted.value
+  if (isMuted.value && audioService.isPlaying.value) {
+    // 如果切换到静音状态且当前正在播放音频，则停止播放
+    audioService.stopAudio()
+  }
 }
 
 // 设置 Config 默认配置
@@ -166,7 +178,6 @@ const addCharacterMessage = (text: string, hasAudio = false, audioData = '') => 
 const toggleChatHistory = () => {
   showChatHistory.value = !showChatHistory.value
 }
-
 // 格式化时间
 const formatTime = (date: Date) => {
   return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
@@ -192,10 +203,8 @@ onMounted(async () => {
       no: 0,
       priority: 3,
     })
-    
     // 初始化 WebSocket 连接
     wsService.connect()
-    
     // 添加一条欢迎消息
     addCharacterMessage(`你好呀！我是${characterName.value}，很高兴认识你！`)
   }
@@ -204,10 +213,8 @@ onMounted(async () => {
 onUnmounted(() => {
   // 关闭 WebSocket 连接
   wsService.disconnect()
-  
   // 停止音频播放
   audioService.destroy()
-  
   // 释放 Live2D 实例
   live2DSprite.destroy()
 })
@@ -220,16 +227,22 @@ onUnmounted(() => {
       ref="canvasRef"
     />
     
-    <!-- 连接状态指示器 -->
+    <!-- 连接状态指示器 - 移到左上角 -->
     <div class="connection-status" :class="{ 'connected': wsService.isConnected.value }">
       {{ wsService.isConnected.value ? '已连接' : '未连接' }}
+    </div>
+    
+    <!-- 静音按钮 -->
+    <div class="mute-button" @click="toggleMute">
+      <span v-if="isMuted">🔇</span>
+      <span v-else>🔊</span>
     </div>
     
     <!-- Galgame 风格聊天框 -->
     <div class="chat-container">
       <div class="chat-dialog">
         <div class="speaker-name" v-if="chatHistory.length > 0">
-          {{ chatHistory[chatHistory.length - 1].sender === 'character' ? characterName : '玩家' }}
+          {{ chatHistory[chatHistory.length - 1].sender === 'character' ? characterName : 'player' }}
         </div>
         <div class="dialog-text" v-if="chatHistory.length > 0">
           {{ chatHistory[chatHistory.length - 1].text }}
@@ -318,11 +331,11 @@ onUnmounted(() => {
   overflow: hidden;
 }
 
-/* 连接状态指示器 */
+/* 连接状态指示器 - 移到左上角 */
 .connection-status {
   position: absolute;
   top: 10px;
-  right: 10px;
+  left: 10px; /* 从右上角改为左上角 */
   padding: 5px 10px;
   border-radius: 15px;
   background-color: rgba(255, 0, 0, 0.7);
@@ -334,6 +347,28 @@ onUnmounted(() => {
 
 .connection-status.connected {
   background-color: rgba(0, 128, 0, 0.7);
+}
+
+/* 静音按钮样式 */
+.mute-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background-color: rgba(0, 0, 0, 0.7);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 100;
+  transition: all 0.3s;
+}
+
+.mute-button:hover {
+  background-color: rgba(0, 0, 0, 0.9);
 }
 
 /* 聊天框样式 */
@@ -472,7 +507,7 @@ onUnmounted(() => {
   background-color: rgba(0, 0, 0, 0.9);
 }
 
-/* 历史记录面板 */
+/* 历史记录面板 - 提高z-index确保在最上层 */
 .history-panel {
   position: absolute;
   top: 0;
@@ -482,7 +517,7 @@ onUnmounted(() => {
   background-color: rgba(240, 240, 240, 0.95);
   box-shadow: -2px 0 10px rgba(0, 0, 0, 0.2);
   transition: right 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-  z-index: 20;
+  z-index: 200; /* 提高z-index确保在最上层 */
   display: flex;
   flex-direction: column;
 }

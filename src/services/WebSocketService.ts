@@ -1,11 +1,17 @@
 import { ref } from 'vue'
 
 export interface WSMessage {
-  type: 'text_input' | 'audio_input' | 'ai_response' | 'system_message'
+  type: 'text_input' | 'audio_input' | 'ai_response' | 'system_status'
   payload: {
     text?: string
     audio_encoded_base64?: string
     session_id: string
+
+    // 接收部分
+    audio?: {
+      audio_data: string
+      audio_format?: string
+    }
   }
 }
 
