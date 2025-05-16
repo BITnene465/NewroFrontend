@@ -1,86 +1,64 @@
 <script setup lang="ts">
-import { Config, Live2DSprite, LogLevel } from 'easy-live2d'
-import { Application, Ticker } from 'pixi.js'
-import { onMounted, onUnmounted, ref } from 'vue'
-
-const canvasRef = ref<HTMLCanvasElement>()
-const app = new Application()
-
-// 设置 Config 默认配置
-Config.MotionGroupIdle = 'Idle' // 设置默认的空闲动作组
-// Config.MouseFollow = false // 禁用鼠标跟随
-Config.CubismLoggingLevel = LogLevel.LogLevel_Off // 设置日志级别
-
-// 创建Live2D精灵 并初始化
-const live2DSprite = new Live2DSprite()
-live2DSprite.init({
-  modelPath: '/Resources/Hiyori/Hiyori.model3.json',
-  ticker: Ticker.shared,
-})
-
-// 监听点击事件
-live2DSprite.onLive2D('hit', ({ hitAreaName, x, y }) => {
-  console.log('hit', hitAreaName, x, y)
-})
-
-// 你也可以直接这样初始化
-// const live2DSprite = new Live2DSprite({
-//   modelPath: '/Resources/Huusya/Huusya.model3.json',
-//   ticker: Ticker.shared
-// })
-
-onMounted(async () => {
-  await app.init({
-    view: canvasRef.value,
-    backgroundAlpha: 0, // 如果需要透明，可以设置alpha为0
-  })
-  if (canvasRef.value) {
-    // live2DSprite.x = -300
-    // live2DSprite.y = -300
-    live2DSprite.width = canvasRef.value.clientWidth * window.devicePixelRatio
-    live2DSprite.height = canvasRef.value.clientHeight * window.devicePixelRatio
-    app.stage.addChild(live2DSprite)
-
-    live2DSprite.setExpression({
-      expressionId: 'normal',
-    })
-
-    // live2DSprite.startMotion({
-    //   group: 'test',
-    //   no: 0,
-    //   priority: 3,
-    // })
-  }
-})
-
-onUnmounted(() => {
-  // 释放实例
-  live2DSprite.destroy()
-})
+import { RouterLink, RouterView } from 'vue-router'
 </script>
 
 <template>
-  <div class="test" />
-  <canvas
-    id="live2d"
-    ref="canvasRef"
-  />
+  <div class="app">
+    <header>
+      <nav>
+        <RouterLink to="/">首页</RouterLink>
+        <RouterLink to="/live2d">Live2D</RouterLink>
+        <RouterLink to="/about">关于</RouterLink>
+      </nav>
+    </header>
+
+    <main>
+      <RouterView />
+    </main>
+  </div>
 </template>
 
 <style>
-#live2d {
-  position: absolute;
-  top: 0%;
-  right: 0%;
+.app {
   width: 100%;
-  height: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
-.test {
-  display: inline-block;
-  position: absolute;
-  width: 100%;
-  height: 70%;
-  background-color: pink;
+header {
+  background-color: #f8f9fa;
+  padding: 1rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+}
+
+nav {
+  display: flex;
+  gap: 1.5rem;
+}
+
+nav a {
+  color: #333;
+  text-decoration: none;
+  font-weight: bold;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  transition: background-color 0.3s;
+}
+
+nav a:hover {
+  background-color: #e9ecef;
+}
+
+nav a.router-link-active {
+  color: #3490dc;
+  background-color: #e9ecef;
+}
+
+main {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
 }
 </style>
