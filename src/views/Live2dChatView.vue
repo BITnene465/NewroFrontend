@@ -44,7 +44,6 @@ wsService.onMessage = (message: WSMessage) => {
   switch (message.type) {
     case 'ai_response':
       if (message.payload.text) {
-        // 收到ai回复
         if (message.payload.audio) {
           // 如果同时收到了文本和语音，先显示文本
           handleCharacterAudioResponse(message.payload.audio.audio_data, message.payload.text)
@@ -70,10 +69,8 @@ const handleCharacterTextResponse = (text: string) => {
   const expressions = ['F01', 'F02', 'F03']
   const randomExpression = expressions[Math.floor(Math.random() * expressions.length)]
   live2DSprite.setExpression({ expressionId: randomExpression })
-  
   // 播放随机动作
   live2DSprite.startMotion({ group: 'Idle', no: 0, priority: 3 })
-  
   // 添加角色消息到聊天历史
   addCharacterMessage(text)
 }
@@ -105,19 +102,16 @@ const toggleMute = () => {
     audioService.stopAudio()
   }
 }
-
 // 设置 Config 默认配置
 Config.MotionGroupIdle = 'Idle' // 设置默认的空闲动作组
 Config.MouseFollow = false // 禁用鼠标跟随
 Config.CubismLoggingLevel = LogLevel.LogLevel_Off // 设置日志级别
-
 // 创建Live2D人物 并初始化
 const live2DSprite = new Live2DSprite()
 live2DSprite.init({
   modelPath: '/Resources/Hiyori/Hiyori.model3.json',
   ticker: Ticker.shared,
 })
-
 // 添加用户消息
 const addUserMessage = (text: string) => {
   if (!text.trim()) return
@@ -160,7 +154,6 @@ const addUserMessage = (text: string) => {
     }, 1000)
   }
 }
-
 // 添加角色消息
 const addCharacterMessage = (text: string, hasAudio = false, audioData = '') => {
   const message: ChatMessage = {
@@ -173,7 +166,6 @@ const addCharacterMessage = (text: string, hasAudio = false, audioData = '') => 
   }
   chatHistory.push(message)
 }
-
 // 切换历史记录显示状态
 const toggleChatHistory = () => {
   showChatHistory.value = !showChatHistory.value
@@ -182,7 +174,6 @@ const toggleChatHistory = () => {
 const formatTime = (date: Date) => {
   return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
 }
-
 onMounted(async () => {
   await app.init({
     view: canvasRef.value,
@@ -209,7 +200,6 @@ onMounted(async () => {
     addCharacterMessage(`你好呀！我是${characterName.value}，很高兴认识你！`)
   }
 })
-
 onUnmounted(() => {
   // 关闭 WebSocket 连接
   wsService.disconnect()
@@ -335,7 +325,7 @@ onUnmounted(() => {
 .connection-status {
   position: absolute;
   top: 10px;
-  left: 10px; /* 从右上角改为左上角 */
+  left: 10px;
   padding: 5px 10px;
   border-radius: 15px;
   background-color: rgba(255, 0, 0, 0.7);
