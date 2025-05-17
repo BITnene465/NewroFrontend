@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from 'vue-router'
+// 检查是否为开发环境
+const isDev = import.meta.env.DEV
+
 </script>
 
 <template>
@@ -9,6 +12,9 @@ import { RouterLink, RouterView } from 'vue-router'
         <RouterLink to="/">首页</RouterLink>
         <RouterLink to="/live2d">Live2D</RouterLink>
         <RouterLink to="/about">关于</RouterLink>
+
+        <!-- 只在开发环境中显示测试链接 -->
+        <RouterLink v-if="isDev" to="/test" class="dev-link">测试</RouterLink>
       </nav>
     </header>
 
@@ -60,5 +66,21 @@ main {
   flex: 1;
   position: relative;
   overflow: hidden;
+}
+
+
+/* 开发测试链接样式 */
+nav a.dev-link {
+  background-color: #e63946;
+  color: white;
+}
+
+nav a.dev-link:hover {
+  background-color: #c1121f;
+}
+
+nav a.dev-link.router-link-active {
+  background-color: #c1121f;
+  color: white;
 }
 </style>

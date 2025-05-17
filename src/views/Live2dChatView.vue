@@ -25,7 +25,7 @@ const isMuted = ref(true) // 默认静音状态
 
 // 创建服务实例
 const sessionId = 'webtest0721' // 用于存储会话ID, 目前使用唯一sessionID进行测试
-const wsService = new WebSocketService('ws://localhost:8765', sessionId)
+const wsService = new WebSocketService('ws://localhost:8765', sessionId, true, 20000)
 const audioService = new AudioService()
 
 // 设置音频播放事件回调
@@ -109,7 +109,7 @@ Config.CubismLoggingLevel = LogLevel.LogLevel_Off // 设置日志级别
 // 创建Live2D人物 并初始化
 const live2DSprite = new Live2DSprite()
 live2DSprite.init({
-  modelPath: '/Resources/Hiyori/Hiyori.model3.json',
+  modelPath: '/Resources/Mao/Mao.model3.json',
   ticker: Ticker.shared,
 })
 // 添加用户消息

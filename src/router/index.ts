@@ -18,11 +18,19 @@ const router = createRouter({
         {
             path: '/about',
             name: 'about',
-            // route level code-splitting
-            // this generates a separate chunk (About.[hash].js) for this route
-            // which is lazy-loaded when the route is visited.
+            // 懒加载关于页面
             component: () => import('../views/AboutView.vue'),
         },
+        
+        
+        // 测试视图 - 仅在开发环境中可用
+        ...(import.meta.env.DEV
+            ? [{
+                path: '/test',
+                name: 'test',
+                component: () => import('../views/TestView.vue')
+            }]
+            : [])
     ],
 })
 
