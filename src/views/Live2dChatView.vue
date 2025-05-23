@@ -1,11 +1,36 @@
 <script setup lang="ts">
-import { Config, Live2DSprite, LogLevel } from 'easy-live2d'
-import { Application, Ticker } from 'pixi.js'
+// ================= 导入依赖 =================
+import { Application } from 'pixi.js'
+import * as PIXI from 'pixi.js'
+import { Live2DModel } from 'pixi-live2d-display/cubism4'
 import { onMounted, onUnmounted, ref, reactive } from 'vue'
 import { WebSocketService, type WSMessage } from '../services/WebSocketService'
 import { AudioService } from '../services/AudioService'
 
-// 聊天相关类型定义
+// ================= Live2D 初始化 =================
+// 确保PIXI能访问全局变量，以供pixi-live2d-display使用
+window.PIXI = PIXI as any;
+// 声明全局变量类型
+declare global {
+  interface Window {
+    PIXI: typeof PIXI;
+    Live2DCubismCore: any;
+  }
+}
+// 检查 Live2DCubismCore 是否已加载
+if (typeof window.Live2DCubismCore === "object") {
+  console.log("Live2DCubismCore 已加载");
+} else {
+  console.error("Live2DCubismCore 未加载，请检查 index.html 中的脚本引入");
+}
+// 设置模型的默认配置
+Live2DModel.registerTicker(PIXI.Ticker)
+
+// 设置 Live2D 模型的默认配置
+let modelPath = '/Resources/Hiyori/Hiyori.model3.json'
+
+// ================= 数据定义 =================
+// 聊天消息类型定义
 interface ChatMessage {
   id: number
   text: string
@@ -15,28 +40,47 @@ interface ChatMessage {
   audioData?: string
 }
 
-const canvasRef = ref<HTMLCanvasElement>()
-const app = new Application()
+// 引用和状态变量
+const canvasRef = ref<HTMLDivElement>() // 改为 div 元素引用
 const showChatHistory = ref(false)
 const messageInput = ref('')
 const chatHistory = reactive<ChatMessage[]>([])
 const characterName = ref('日和')
 const isMuted = ref(true) // 默认静音状态
+let live2dModel: any = null // Live2D模型实例
 
-// 创建服务实例
+// ================= PIXI 应用 =================
+const app = new Application({
+  antialias: true, // 抗锯齿
+  backgroundColor: 0x000000, // 背景色
+  backgroundAlpha: 0, // 透明背景
+})
+
+// ================= 服务实例 =================
+// 创建 WebSocket 和音频服务实例
 const sessionId = 'webtest0721' // 用于存储会话ID, 目前使用唯一sessionID进行测试
 const wsService = new WebSocketService('ws://localhost:8765', sessionId, true, 20000)
 const audioService = new AudioService()
 
-// 设置音频播放事件回调
+// ================= 音频事件回调 =================
+// 设置音频播放开始事件回调
 audioService.onPlay = () => {
-  live2DSprite.startMotion({ group: 'Idle', no: 1, priority: 3 }) // 播放说话动作
+  // 播放说话动作
+  if (live2dModel) {
+    // 使用正确的动作组名，确保与模型文件一致
+    live2dModel.motion('Idle', 1, 3);
+  }
 }
 
 audioService.onEnded = () => {
-  live2DSprite.startMotion({ group: 'Idle', no: 0, priority: 3 }) // 播放默认动作
+  // 播放默认动作
+  if (live2dModel) {
+    // 使用正确的动作 API，设置为"Idle"组的动作，优先级较低
+    live2dModel.motion('Idle', 0, 1);
+  }
 }
 
+// ================= WebSocket 消息处理 =================
 // 设置WebSocket消息处理回调
 wsService.onMessage = (message: WSMessage) => {
   console.log('收到WebSocket消息:', message)
@@ -63,19 +107,56 @@ wsService.onMessage = (message: WSMessage) => {
   }
 }
 
-// 处理角色文本回复
+// ================= 消息处理函数 =================
+/**
+ * 处理角色文本回复
+ * @param text 文本内容
+ */
 const handleCharacterTextResponse = (text: string) => {
-  // 设置随机表情
-  const expressions = ['F01', 'F02', 'F03']
-  const randomExpression = expressions[Math.floor(Math.random() * expressions.length)]
-  live2DSprite.setExpression({ expressionId: randomExpression })
-  // 播放随机动作
-  live2DSprite.startMotion({ group: 'Idle', no: 0, priority: 3 })
+  // 设置随机表情 - 确保表情存在
+  if (live2dModel && live2dModel.internalModel.motionManager.expressionManager) {
+    const expressions = live2dModel.internalModel.motionManager.expressionManager.definitions;
+    
+    // 如果有表情定义
+    if (expressions && expressions.length > 0) {
+      // 随机选择一个表情
+      const randomIndex = Math.floor(Math.random() * expressions.length);
+      const expressionName = expressions[randomIndex].Name || expressions[randomIndex].name || 'F01';
+      
+      try {
+        // 使用正确的表情名称
+        live2dModel.expression(expressionName);
+        console.log(`设置表情: ${expressionName}`);
+      } catch (e) {
+        console.error('设置表情失败:', e);
+      }
+    }
+    
+    // 播放随机动作 - 使用模型中可用的动作组
+    const motionDefinitions = live2dModel.internalModel.motionManager.definitions;
+    if (motionDefinitions && Object.keys(motionDefinitions).length > 0) {
+      // 尝试使用第一个可用的动作组
+      const firstGroup = Object.keys(motionDefinitions)[0];
+      try {
+        live2dModel.motion(firstGroup, 0, 1);
+        console.log(`使用动作组 ${firstGroup} 播放动作`);
+      } catch (e) {
+        console.error('播放动作失败:', e);
+      }
+    }
+  } else if (live2dModel) {
+    console.warn('模型不支持表情或动作');
+  }
+  
   // 添加角色消息到聊天历史
-  addCharacterMessage(text)
+  addCharacterMessage(text);
 }
 
-// 处理角色语音回复
+/**
+ * 处理角色语音回复
+ * @param audioBase64 Base64编码的音频数据
+ * @param text 可选的文本内容
+ */
 const handleCharacterAudioResponse = (audioBase64: string, text?: string) => {
   // 如果同时收到了文本和语音，先显示文本
   if (text) {
@@ -89,12 +170,18 @@ const handleCharacterAudioResponse = (audioBase64: string, text?: string) => {
   }
 }
 
-// 播放Base64编码的音频
+/**
+ * 播放Base64编码的音频
+ * @param audioBase64 Base64编码的音频数据
+ * @param audio_format 音频格式，默认为wav
+ */
 const playAudio = (audioBase64: string, audio_format: string = 'wav') => {
   audioService.playAudio(audioBase64, audio_format)
 }
 
-// 切换静音状态
+/**
+ * 切换静音状态
+ */
 const toggleMute = () => {
   isMuted.value = !isMuted.value
   if (isMuted.value && audioService.isPlaying.value) {
@@ -102,17 +189,11 @@ const toggleMute = () => {
     audioService.stopAudio()
   }
 }
-// 设置 Config 默认配置
-Config.MotionGroupIdle = 'Idle' // 设置默认的空闲动作组
-Config.MouseFollow = false // 禁用鼠标跟随
-Config.CubismLoggingLevel = LogLevel.LogLevel_Off // 设置日志级别
-// 创建Live2D人物 并初始化
-const live2DSprite = new Live2DSprite()
-live2DSprite.init({
-  modelPath: '/Resources/Mao/Mao.model3.json',
-  ticker: Ticker.shared,
-})
-// 添加用户消息
+
+/**
+ * 添加用户消息
+ * @param text 消息文本
+ */
 const addUserMessage = (text: string) => {
   if (!text.trim()) return
   
@@ -136,10 +217,13 @@ const addUserMessage = (text: string) => {
       // 随机选择一个表情
       const expressions = ['F01', 'F02', 'F03']
       const randomExpression = expressions[Math.floor(Math.random() * expressions.length)]
-      live2DSprite.setExpression({ expressionId: randomExpression })
       
-      // 随机动作
-      live2DSprite.startMotion({ group: 'Idle', no: 0, priority: 3 })
+      if (live2dModel) {
+        // 设置表情
+        live2dModel.expression(randomExpression);
+        // 播放随机动作，设置低优先级
+        live2dModel.motion('Idle', 0, 1);
+      }
       
       // 模拟回复
       const replies = [
@@ -154,7 +238,13 @@ const addUserMessage = (text: string) => {
     }, 1000)
   }
 }
-// 添加角色消息
+
+/**
+ * 添加角色消息
+ * @param text 消息文本
+ * @param hasAudio 是否包含音频
+ * @param audioData 可选的音频数据
+ */
 const addCharacterMessage = (text: string, hasAudio = false, audioData = '') => {
   const message: ChatMessage = {
     id: Date.now(),
@@ -166,56 +256,114 @@ const addCharacterMessage = (text: string, hasAudio = false, audioData = '') => 
   }
   chatHistory.push(message)
 }
-// 切换历史记录显示状态
+
+/**
+ * 切换历史记录显示状态
+ */
 const toggleChatHistory = () => {
   showChatHistory.value = !showChatHistory.value
 }
-// 格式化时间
+
+/**
+ * 格式化时间
+ * @param date 日期对象
+ * @returns 格式化后的时间字符串 (HH:MM)
+ */
 const formatTime = (date: Date) => {
   return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
 }
+
+// ================= 生命周期钩子 =================
+/**
+ * 组件挂载时的处理逻辑
+ */
 onMounted(async () => {
-  await app.init({
-    view: canvasRef.value,
-    backgroundAlpha: 0, // 如果需要透明，可以设置alpha为0
-  })
   if (canvasRef.value) {
-    live2DSprite.width = canvasRef.value.clientWidth * window.devicePixelRatio
-    live2DSprite.height = canvasRef.value.clientHeight * window.devicePixelRatio
-    app.stage.addChild(live2DSprite)
+    // 调整应用大小
+    app.renderer.resize(canvasRef.value.clientWidth, canvasRef.value.clientHeight);
     
-    // 初始表情和动作
-    live2DSprite.setExpression({
-      expressionId: 'F01',
-    })
+    // 将 PixiJS 生成的 canvas 添加到我们的 div 容器中
+    canvasRef.value.appendChild(app.view as HTMLCanvasElement);
     
-    live2DSprite.startMotion({
-      group: 'Idle',
-      no: 0,
-      priority: 3,
-    })
-    // 初始化 WebSocket 连接
-    wsService.connect()
-    // 添加一条欢迎消息
-    addCharacterMessage(`你好呀！我是${characterName.value}，很高兴认识你！`)
+    // 设置 canvas 样式
+    const canvas = app.view as HTMLCanvasElement;
+    canvas.style.width = '100%';
+    canvas.style.height = '100%';
+    canvas.style.position = 'absolute';
+    canvas.style.top = '0';
+    canvas.style.left = '0';
+    
+    try {
+      // 设置舞台大小和视图
+      app.renderer.resize(canvasRef.value.clientWidth, canvasRef.value.clientHeight);
+      // 加载模型
+      live2dModel = await Live2DModel.from(modelPath, {
+        autoInteract: false, // 禁用自动交互
+        autoUpdate: true, // 自动更新
+      });
+      
+      if (!live2dModel) {
+        throw new Error('模型加载失败');
+      }
+      
+      // 设置模型尺寸和位置
+      const canvasWidth = canvasRef.value.clientWidth;
+      const canvasHeight = canvasRef.value.clientHeight;
+      
+      // 计算适合的缩放比例
+      const scale = Math.min(
+        canvasWidth / live2dModel.width, 
+        canvasHeight / live2dModel.height
+      );
+      
+      live2dModel.scale.set(scale);
+      
+      // 将模型居中
+      live2dModel.x = canvasWidth / 2;
+      live2dModel.y = canvasHeight;
+      live2dModel.anchor.set(0.5, 1.0); // 设置锚点为底部中心
+      
+      // 添加模型到舞台
+      app.stage.addChild(live2dModel);
+      
+      // 打印模型信息
+      console.log('模型已加载:', live2dModel);
+      console.log('可用动作组:', live2dModel.internalModel.motionManager.definitions);
+      console.log('可用表情:', live2dModel.internalModel.motionManager.expressionManager?.definitions);
+      
+      // 初始化 WebSocket 连接
+      wsService.connect();
+      // 添加一条欢迎消息
+      addCharacterMessage(`你好呀！我是${characterName.value}，很高兴认识你！`);
+    } catch (error) {
+      console.error('加载模型时出错:', error);
+    }
   }
 })
+
 onUnmounted(() => {
   // 关闭 WebSocket 连接
   wsService.disconnect()
   // 停止音频播放
   audioService.destroy()
   // 释放 Live2D 实例
-  live2DSprite.destroy()
+  if (live2dModel) {
+    live2dModel.destroy()
+    live2dModel = null
+  }
+  
+  // 销毁PIXI应用程序
+  app.destroy(true)
 })
 </script>
 
 <template>
   <div class="live2d-chat">
-    <canvas
-      id="live2d"
+    <div
+      id="live2d-container"
       ref="canvasRef"
-    />
+      class="live2d-container"
+    ></div>
     
     <!-- 连接状态指示器 - 移到左上角 -->
     <div class="connection-status" :class="{ 'connected': wsService.isConnected.value }">
@@ -304,12 +452,12 @@ onUnmounted(() => {
 </template>
 
 <style>
-#live2d {
+.live2d-container {
   position: relative;
-  top: 0%;
-  right: 0%;
   width: 100%;
   height: 100%;
+  top: 0;
+  right: 0;
 }
 
 .live2d-chat {

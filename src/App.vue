@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { RouterLink, RouterView } from 'vue-router'
+import { onMounted } from 'vue'
 // 检查是否为开发环境
 const isDev = import.meta.env.DEV
-
 </script>
 
 <template>

@@ -1,17 +1,40 @@
 <script setup lang="ts">
-import { Config, Live2DSprite, LogLevel } from 'easy-live2d'
-import { Application, Ticker } from 'pixi.js'
+// ================= 导入依赖 =================
+import { Application } from 'pixi.js'
+import * as PIXI from 'pixi.js'
+import { Live2DModel } from 'pixi-live2d-display/cubism4'
 import { onMounted, onUnmounted, ref } from 'vue'
 
+// ================= Live2D 初始化 =================
+// 确保PIXI能访问全局变量，以供pixi-live2d-display使用
+window.PIXI = PIXI as any;
+// 声明全局变量类型
+declare global {
+  interface Window {
+    PIXI: typeof PIXI;
+    Live2DCubismCore: any;
+  }
+}
+// 检查 Live2DCubismCore 是否已加载
+if (typeof window.Live2DCubismCore === "object") {
+  console.log("Live2DCubismCore 已加载");
+} else {
+  console.error("Live2DCubismCore 未加载，请检查 index.html 中的脚本引入");
+}
+// 设置模型的默认配置
+Live2DModel.registerTicker(PIXI.Ticker)
 
-const canvasRef = ref<HTMLCanvasElement>()
-const app = new Application()
-Config.MotionGroupIdle = 'Idle' 
-Config.MouseFollow = false 
-Config.CubismLoggingLevel = LogLevel.LogLevel_Verbose 
-const live2DSprite = new Live2DSprite()
+// ================= 数据定义 =================
+const canvasRef = ref<HTMLDivElement>() // 改为div元素引用
+const app = new Application({
+  antialias: true,
+  backgroundColor: 0x000000,
+  backgroundAlpha: 0,
+  // 关于渲染质量(目前没有定义 devicePixelRatio)
+  resolution:  window.devicePixelRatio || 2,
+})
+let live2DModel: any = null
 
-console.log('Live2D模型:', live2DSprite)
 // 测试功能区
 const testStatus = ref('等待初始化')
 const expressionIndex = ref(0)
@@ -29,7 +52,11 @@ const currentLipSyncFrame = ref(0)
 // 口型参数ID
 const mouthParams = ['ParamA', 'ParamI', 'ParamU', 'ParamE', 'ParamO']
 
-// 解析口型帧数据
+// ================= 测试功能函数 =================
+/**
+ * 解析口型帧数据
+ * @returns 是否解析成功
+ */
 const parseLipSyncData = () => {
   try {
     // 清除之前的数据
@@ -58,21 +85,33 @@ const parseLipSyncData = () => {
   }
 }
 
-// 应用口型帧到模型
+/**
+ * 应用口型帧到模型
+ * @param frameIndex 帧索引
+ */
 const applyLipSyncFrame = (frameIndex: number) => {
   if (!lipSyncFrames.value.length || frameIndex >= lipSyncFrames.value.length) return
   
   const frame = lipSyncFrames.value[frameIndex]
   
   // 将值应用到相应的口型参数
-  frame.forEach((value: number, index: number) => {
-    if (index < mouthParams.length) {
-      live2DSprite['_model']['_model'].setParameterValueById(mouthParams[index], value)
-    }
-  })
+  if (live2DModel && live2DModel.internalModel) {
+    frame.forEach((value: number, index: number) => {
+      if (index < mouthParams.length) {
+        try {
+          // 在pixi-live2d-display中设置参数值的方法
+          live2DModel.internalModel.coreModel.setParameterValueById(mouthParams[index], value)
+        } catch (e) {
+          console.error(`设置口型参数 ${mouthParams[index]} 失败:`, e)
+        }
+      }
+    })
+  }
 }
 
-// 开始口型动画
+/**
+ * 开始口型动画
+ */
 const startLipSync = () => {
   if (isLipSyncPlaying.value) return
   
@@ -85,7 +124,7 @@ const startLipSync = () => {
   isLipSyncPlaying.value = true
   testStatus.value = '正在播放口型动画'
   
-  // 每帧更新口型参数 (约60ms一帧)
+  // 每帧更新口型参数
   lipSyncTimer.value = window.setInterval(() => {
     applyLipSyncFrame(currentLipSyncFrame.value)
     
@@ -93,79 +132,216 @@ const startLipSync = () => {
     if (currentLipSyncFrame.value >= lipSyncFrames.value.length) {
       currentLipSyncFrame.value = 0 // 循环播放
     }
-  }, 60)
+  }, 100)
 }
-// 停止口型动画
+
+/**
+ * 停止口型动画
+ */
 const stopLipSync = () => {
   if (lipSyncTimer.value) {
     clearInterval(lipSyncTimer.value)
     lipSyncTimer.value = null
   }
+  
   // 重置所有口型参数为0
-  mouthParams.forEach(param => {
-    live2DSprite['_model']['_model'].setParameterByID(param, 0)
-  })
+  if (live2DModel && live2DModel.internalModel) {
+    mouthParams.forEach(param => {
+      try {
+        live2DModel.internalModel.coreModel.setParameterValueById(param, 0)
+      } catch (e) {
+        console.error(`重置口型参数 ${param} 失败:`, e)
+      }
+    })
+  }
   
   isLipSyncPlaying.value = false
   testStatus.value = '口型动画已停止'
 }
 
-// 切换表情的函数
+/**
+ * 切换表情的函数
+ */
 const changeExpression = () => {
-  const expressionId = expressionList[expressionIndex.value]
-  testStatus.value = `设置表情: ${expressionId}`
-  live2DSprite.setExpression({ expressionId })
+  if (!live2DModel) {
+    testStatus.value = '模型未加载'
+    return
+  }
+  // 检查模型是否有表情管理器
+  if (live2DModel.internalModel.motionManager.expressionManager) {
+    const expressions = live2DModel.internalModel.motionManager.expressionManager.definitions
+    if (expressions && expressions.length > 0) {
+      // 尝试使用提供的表情名称
+      const expressionId = expressionList[expressionIndex.value]
+      testStatus.value = `设置表情: ${expressionId}`
+      try {
+        live2DModel.expression(expressionId)
+        console.log(`设置表情: ${expressionId}`)
+      } catch (e) {
+        console.error('设置表情失败:', e)
+        // 尝试使用模型自带的第一个表情
+        if (expressions.length > 0) {
+          const firstExpression = expressions[0].Name || expressions[0].name
+          try {
+            live2DModel.expression(firstExpression)
+            testStatus.value = `使用可用表情: ${firstExpression}`
+          } catch (err) {
+            console.error('设置备选表情也失败:', err)
+            testStatus.value = '表情设置失败'
+          }
+        }
+      }
+    } else {
+      testStatus.value = '模型不包含表情定义'
+    }
+  } else {
+    testStatus.value = '模型不支持表情'
+  }
+  
   expressionIndex.value = (expressionIndex.value + 1) % expressionList.length
 }
 
-// 切换动作的函数
+/**
+ * 切换动作的函数
+ */
 const playMotion = () => {
-  const group = motionGroups[motionIndex.value % motionGroups.length]
-  const no = motionIndex.value > 1 ? 1 : 0
-  testStatus.value = `播放动作: ${group}-${no}`
-  live2DSprite.startMotion({ group, no, priority: 3 })
+  if (!live2DModel) {
+    testStatus.value = '模型未加载'
+    return
+  }
+  // 检查动作组
+  const motionDefinitions = live2DModel.internalModel.motionManager.definitions
+  if (motionDefinitions) {
+    // 尝试使用指定的动作组
+    const group = motionGroups[motionIndex.value % motionGroups.length]
+    const no = motionIndex.value > 1 ? 1 : 0
+    
+    try {
+      live2DModel.motion(group, no, 3)
+      testStatus.value = `播放动作: ${group}-${no}`
+      console.log(`播放动作: ${group}-${no}`)
+    } catch (e) {
+      console.error(`播放动作组 ${group} 失败:`, e)
+      
+      // 尝试使用模型的第一个可用动作组
+      if (Object.keys(motionDefinitions).length > 0) {
+        const firstGroup = Object.keys(motionDefinitions)[0]
+        try {
+          live2DModel.motion(firstGroup, 0, 3)
+          testStatus.value = `使用可用动作组: ${firstGroup}`
+        } catch (err) {
+          console.error('播放备选动作也失败:', err)
+          testStatus.value = '动作播放失败'
+        }
+      }
+    }
+  } else {
+    testStatus.value = '模型不包含动作定义'
+  }
+  
   motionIndex.value = (motionIndex.value + 1) % 4
 }
 
-// 组件挂载时的初始化
+// ================= 生命周期钩子 =================
+/**
+ * 组件挂载时的初始化
+ */
 onMounted(async () => {
   if (!canvasRef.value) return
   
   try {
     testStatus.value = '初始化PIXI...'
-    await app.init({
-      view: canvasRef.value,
-      backgroundAlpha: 0,
-    })
+    // 调整应用大小
+    app.renderer.resize(canvasRef.value.clientWidth, canvasRef.value.clientHeight)
+    // 将 PixiJS 生成的 canvas 添加到我们的 div 容器中
+    canvasRef.value.appendChild(app.view as HTMLCanvasElement)
+    // 设置 canvas 样式
+    const canvas = app.view as HTMLCanvasElement
+    canvas.style.width = '100%'
+    canvas.style.height = '100%'
+    canvas.style.position = 'absolute'
+    canvas.style.top = '0'
+    canvas.style.left = '0'
     
+    // 加载Live2D模型
     testStatus.value = '加载Live2D模型...'
-    await live2DSprite.init({
-      modelPath: '/Resources/Mao/Mao.model3.json',
-      ticker: Ticker.shared,
+    live2DModel = await Live2DModel.from('/Resources/Mao/Mao.model3.json', {
+      autoInteract: false, // 禁用自动交互
+      autoUpdate: true,    // 自动更新
     })
     
-    // 设置尺寸
-    live2DSprite.width = canvasRef.value.clientWidth * window.devicePixelRatio
-    live2DSprite.height = canvasRef.value.clientHeight * window.devicePixelRatio
+    if (!live2DModel) {
+      throw new Error('模型加载失败')
+    }
+    
+    // 设置模型尺寸和位置
+    const canvasWidth = canvasRef.value.clientWidth
+    const canvasHeight = canvasRef.value.clientHeight
+    
+    // 计算适合的缩放比例
+    const scale = Math.min(
+      canvasWidth / live2DModel.width,
+      canvasHeight / live2DModel.height
+    )
+    
+    live2DModel.scale.set(scale)
+    
+    // 将模型居中
+    live2DModel.x = canvasWidth / 2
+    live2DModel.y = canvasHeight
+    live2DModel.anchor.set(0.5, 1.0) // 设置锚点为底部中心
     
     // 添加到舞台
-    app.stage.addChild(live2DSprite)
+    app.stage.addChild(live2DModel)
     
-    // 初始表情和动作
-    live2DSprite.setExpression({ expressionId: 'F01' })
-    live2DSprite.startMotion({ group: 'Idle', no: 0, priority: 3 })
+    // 输出模型可用的动作组和表情
+    console.log('模型已加载:', live2DModel)
+    console.log('可用动作组:', live2DModel.internalModel.motionManager.definitions)
+    console.log('可用表情:', live2DModel.internalModel.motionManager.expressionManager?.definitions)
     
-    testStatus.value = '模型加载完成!'
+    // 尝试设置初始表情和动作
+    try {
+      if (live2DModel.internalModel.motionManager.expressionManager) {
+        const expressions = live2DModel.internalModel.motionManager.expressionManager.definitions
+        if (expressions && expressions.length > 0) {
+          const firstExpression = expressions[0].Name || expressions[0].name
+          live2DModel.expression(firstExpression)
+        }
+      }
+      
+      // 尝试播放初始动作
+      const motionDefinitions = live2DModel.internalModel.motionManager.definitions
+      if (motionDefinitions && Object.keys(motionDefinitions).length > 0) {
+        const firstGroup = Object.keys(motionDefinitions)[0]
+        live2DModel.motion(firstGroup, 0, 1)
+      }
+      
+      testStatus.value = '模型加载完成!'
+    } catch (e) {
+      console.error('设置初始表情/动作失败:', e)
+      testStatus.value = '模型加载完成，但初始化表情/动作失败'
+    }
   } catch (error) {
     testStatus.value = `错误: ${error}`
     console.error('Live2D模型加载失败:', error)
   }
 })
-// 组件卸载时清理资源
+
+/**
+ * 组件卸载时清理资源
+ */
 onUnmounted(() => {
+  // 停止口型动画
   stopLipSync()
-  live2DSprite.destroy()
-  app.destroy()
+  
+  // 清理模型资源
+  if (live2DModel) {
+    live2DModel.destroy()
+    live2DModel = null
+  }
+  
+  // 销毁PIXI应用
+  app.destroy(true)
 })
 </script>
 
@@ -180,7 +356,7 @@ onUnmounted(() => {
     
     <div class="test-content">
       <div class="live2d-container">
-        <canvas ref="canvasRef" id="testLive2d" />
+        <div ref="canvasRef" id="testLive2d"></div>
       </div>
       
       <div class="test-controls">
@@ -201,12 +377,12 @@ onUnmounted(() => {
             </button>
           </div>
           
-          <!-- 新增：口型测试区域 -->
+          <!-- 口型测试区域 -->
           <div class="control-section">
             <h3>口型测试</h3>
             <div class="lip-sync-description">
               <p>输入格式：每行一个帧，每帧5个参数用逗号分隔 (a,i,u,e,o)，值范围0-1</p>
-              <p>示例：<button @click="lipSyncInput='1,0,0,0,0\n0,1,0,0,0\n0,0,1,0,0\n0,0,0,1,0\n0,0,0,0,1'" class="example-button">加载示例</button></p>
+              <p>示例：<button @click="lipSyncInput='0.3,0,0,0,0\n0,0.3,0,0,0\n0,0,0.3,0,0\n0,0,0,0.3,0\n0,0,0,0,0.3'" class="example-button">加载示例</button></p>
             </div>
             
             <textarea 
