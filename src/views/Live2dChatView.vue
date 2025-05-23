@@ -54,6 +54,7 @@ const app = new Application({
   antialias: true, // 抗锯齿
   backgroundColor: 0x000000, // 背景色
   backgroundAlpha: 0, // 透明背景
+  resolution: window.devicePixelRatio || 2,
 })
 
 // ================= 服务实例 =================
@@ -224,7 +225,6 @@ const addUserMessage = (text: string) => {
         // 播放随机动作，设置低优先级
         live2dModel.motion('Idle', 0, 1);
       }
-      
       // 模拟回复
       const replies = [
         `嗯...我觉得这个问题很有趣呢～`,
