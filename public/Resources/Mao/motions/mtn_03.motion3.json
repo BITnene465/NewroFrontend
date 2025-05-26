@@ -7,7 +7,7 @@
 		"FadeOutTime": 1.0,
 		"Loop": true,
 		"AreBeziersRestricted": true,
-		"CurveCount": 136,
+		"CurveCount": 131,
 		"TotalSegmentCount": 235,
 		"TotalPointCount": 569,
 		"UserDataCount": 0,
@@ -455,61 +455,6 @@
 		{
 			"Target": "Parameter",
 			"Id": "ParamBrowRForm",
-			"Segments": [
-				0,
-				0,
-				0,
-				4.4,
-				0
-			]
-		},
-		{
-			"Target": "Parameter",
-			"Id": "ParamA",
-			"Segments": [
-				0,
-				0,
-				0,
-				4.4,
-				0
-			]
-		},
-		{
-			"Target": "Parameter",
-			"Id": "ParamI",
-			"Segments": [
-				0,
-				0,
-				0,
-				4.4,
-				0
-			]
-		},
-		{
-			"Target": "Parameter",
-			"Id": "ParamU",
-			"Segments": [
-				0,
-				0,
-				0,
-				4.4,
-				0
-			]
-		},
-		{
-			"Target": "Parameter",
-			"Id": "ParamE",
-			"Segments": [
-				0,
-				0,
-				0,
-				4.4,
-				0
-			]
-		},
-		{
-			"Target": "Parameter",
-			"Id": "ParamO",
 			"Segments": [
 				0,
 				0,

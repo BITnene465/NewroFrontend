@@ -7,6 +7,9 @@ import { onMounted, onUnmounted, ref, reactive } from 'vue'
 import { WebSocketService, type WSMessage } from '../services/WebSocketService'
 import { AudioService } from '../services/AudioService'
 
+//调用后台大模型
+//.\runtime\python.exe api_v2.py -a 127.0.0.1 -p 9880 -c GPT_SoVITS/configs/tts_infer.yaml
+
 // ================= Live2D 初始化 =================
 // 确保PIXI能访问全局变量，以供pixi-live2d-display使用
 window.PIXI = PIXI as any;
@@ -27,7 +30,7 @@ if (typeof window.Live2DCubismCore === "object") {
 Live2DModel.registerTicker(PIXI.Ticker)
 
 // 设置 Live2D 模型的默认配置
-let modelPath = '/Resources/Hiyori/Hiyori.model3.json'
+let modelPath = '/Resources/Mao/Mao.model3.json'
 
 // ================= 数据定义 =================
 // 聊天消息类型定义
@@ -49,6 +52,14 @@ const characterName = ref('日和')
 const isMuted = ref(true) // 默认静音状态
 let live2dModel: any = null // Live2D模型实例
 
+// 录音相关状态
+const isRecording = ref(false)
+const mediaRecorder = ref<MediaRecorder | null>(null)
+const audioChunks = ref<Blob[]>([])
+const recordingTime = ref(0)
+let recordingInterval: number | null = null
+
+
 // ================= PIXI 应用 =================
 const app = new Application({
   antialias: true, // 抗锯齿
@@ -62,6 +73,75 @@ const app = new Application({
 const sessionId = 'webtest0721' // 用于存储会话ID, 目前使用唯一sessionID进行测试
 const wsService = new WebSocketService('ws://localhost:8765', sessionId, true, 20000)
 const audioService = new AudioService()
+
+// ================= 音频录制功能 =================
+const startRecording = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    audioChunks.value = []
+    mediaRecorder.value = new MediaRecorder(stream, { 
+      mimeType: 'audio/webm' 
+    })
+    
+    mediaRecorder.value.ondataavailable = (e) => {
+      if (e.data.size > 0) {
+        audioChunks.value.push(e.data)
+      }
+    }
+    
+    mediaRecorder.value.onstop = async () => {
+      const audioBlob = new Blob(audioChunks.value, { type: 'audio/webm' })
+      await processAndSendAudio(audioBlob)
+      stream.getTracks().forEach(track => track.stop())
+    }
+    
+    mediaRecorder.value.start(200) // 每200ms收集一次数据
+    isRecording.value = true
+    recordingTime.value = 0
+    recordingInterval = window.setInterval(() => {
+      recordingTime.value++
+    }, 1000)
+    
+  } catch (error) {
+    console.error('录音失败:', error)
+    alert('无法访问麦克风，请检查权限设置')
+  }
+}
+
+const stopRecording = () => {
+  if (mediaRecorder.value && isRecording.value) {
+    mediaRecorder.value.stop()
+    isRecording.value = false
+    if (recordingInterval) {
+      clearInterval(recordingInterval)
+      recordingInterval = null
+    }
+  }
+}
+
+const toggleRecording = () => {
+  if (isRecording.value) {
+    stopRecording()
+  } else {
+    startRecording()
+  }
+}
+
+// ================= 音频处理与发送 =================
+const processAndSendAudio = async (audioBlob: Blob) => {
+  return new Promise((resolve) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const base64Data = (reader.result as string).split(',')[1]
+      
+      // 添加到聊天历史并通过WebSocket发送
+      addUserMessage('[语音消息]', true, base64Data)
+
+      resolve(true)
+    }
+    reader.readAsDataURL(audioBlob)
+  })
+}
 
 // ================= 音频事件回调 =================
 // 设置音频播放开始事件回调
@@ -88,13 +168,13 @@ wsService.onMessage = (message: WSMessage) => {
   
   switch (message.type) {
     case 'ai_response':
-      if (message.payload.text) {
+      if (message.payload.text&&message.payload.emotion) {
         if (message.payload.audio) {
           // 如果同时收到了文本和语音，先显示文本
-          handleCharacterAudioResponse(message.payload.audio.audio_data, message.payload.text)
+          handleCharacterAudioResponse(message.payload.audio.audio_data, message.payload.emotion, message.payload.text)
         } else {
           // 只收到文本
-          handleCharacterTextResponse(message.payload.text)
+          handleCharacterTextResponse(message.payload.text, message.payload.emotion)
         }
       }
       break
@@ -111,18 +191,37 @@ wsService.onMessage = (message: WSMessage) => {
 // ================= 消息处理函数 =================
 /**
  * 处理角色文本回复
- * @param text 文本内容
+ * @param text 文本内容，返回的内容为:根据文本推断的情绪表达词|文本
  */
-const handleCharacterTextResponse = (text: string) => {
-  // 设置随机表情 - 确保表情存在
+const handleCharacterTextResponse = (text: string, emotion: string, hasAudio = false, audioData = '') => {
+
+  console.log("表情",emotion);
+  console.log("文本",text);
+
+  // 设置指定表情 - 确保表情存在
   if (live2dModel && live2dModel.internalModel.motionManager.expressionManager) {
     const expressions = live2dModel.internalModel.motionManager.expressionManager.definitions;
     
     // 如果有表情定义
     if (expressions && expressions.length > 0) {
-      // 随机选择一个表情
-      const randomIndex = Math.floor(Math.random() * expressions.length);
-      const expressionName = expressions[randomIndex].Name || expressions[randomIndex].name || 'F01';
+      let expressionName = "default";
+      if (emotion.includes('平静')) {
+        expressionName = "exp_01";
+      } else if (emotion.includes('害羞')) {
+        expressionName = "exp_06";
+      } else if (emotion.includes('生气')) {
+        expressionName = "exp_08";
+      } else if(emotion.includes('悲伤')){
+        expressionName = "exp_05";
+      } else if(emotion.includes('惊讶')){
+        expressionName = "exp_07";
+      } else if(emotion.includes('激动')) {
+        expressionName = "exp_04";
+      } else if(emotion.includes('尴尬')) {
+        expressionName = "exp_01";
+      } else if (emotion.includes('高兴')) {
+        expressionName = "exp_01";
+      }
       
       try {
         // 使用正确的表情名称
@@ -133,14 +232,39 @@ const handleCharacterTextResponse = (text: string) => {
       }
     }
     
-    // 播放随机动作 - 使用模型中可用的动作组
+    // 播放指定动作 - 使用模型中可用的动作组
     const motionDefinitions = live2dModel.internalModel.motionManager.definitions;
     if (motionDefinitions && Object.keys(motionDefinitions).length > 0) {
-      // 尝试使用第一个可用的动作组
-      const firstGroup = Object.keys(motionDefinitions)[0];
+      let Group = "default";
+      let Num = 0;
+      if (emotion.includes('平静')) {
+        Group = "TapBody"
+        Num = 0;
+      } else if (emotion.includes('害羞')) {
+        Group = "TapBody"
+        Num = 1;
+      } else if (emotion.includes('生气')) {
+        Group = "TapBody"
+        Num = 2;
+      } else if(emotion.includes('悲伤')){
+        Group = "Idle";
+        Num = 1;
+      } else if(emotion.includes('惊讶')){
+        Group = "Idle";
+        Num = 1;
+      } else if(emotion.includes('激动')) {
+        Group = "TapBody"
+        Num = 3;
+      } else if(emotion.includes('尴尬')) {
+        Group = "TapBody"
+        Num = 4;
+      } else if (emotion.includes('高兴')) {
+        Group = "TapBody"
+        Num = 5;
+      }
       try {
-        live2dModel.motion(firstGroup, 0, 1);
-        console.log(`使用动作组 ${firstGroup} 播放动作`);
+        live2dModel.motion(Group, Num, 3);
+        console.log(`使用动作组 ${Group} 播放动作 ${Num}`);
       } catch (e) {
         console.error('播放动作失败:', e);
       }
@@ -150,7 +274,12 @@ const handleCharacterTextResponse = (text: string) => {
   }
   
   // 添加角色消息到聊天历史
-  addCharacterMessage(text);
+  if(hasAudio==true){
+    addCharacterMessage(text, true, audioData);
+  }else{
+    addCharacterMessage(text);
+  }
+  
 }
 
 /**
@@ -158,12 +287,12 @@ const handleCharacterTextResponse = (text: string) => {
  * @param audioBase64 Base64编码的音频数据
  * @param text 可选的文本内容
  */
-const handleCharacterAudioResponse = (audioBase64: string, text?: string) => {
+const handleCharacterAudioResponse = ( audioBase64: string, emotion:string, text?: string) => {
   // 如果同时收到了文本和语音，先显示文本
   if (text) {
-    addCharacterMessage(text, true, audioBase64)
+    handleCharacterTextResponse(text, emotion, true, audioBase64)
   } else { // 这种情况不会出现
-    addCharacterMessage('[语音消息]', true, audioBase64)
+    handleCharacterTextResponse('[语音消息]', emotion, true, audioBase64)
   }
   // 只有在非静音状态下才自动播放语音
   if (!isMuted.value) {
@@ -177,7 +306,7 @@ const handleCharacterAudioResponse = (audioBase64: string, text?: string) => {
  * @param audio_format 音频格式，默认为wav
  */
 const playAudio = (audioBase64: string, audio_format: string = 'wav') => {
-  audioService.playAudio(audioBase64, audio_format)
+  audioService.playAudio(audioBase64, audio_format, live2dModel)
 }
 
 /**
@@ -194,23 +323,31 @@ const toggleMute = () => {
 /**
  * 添加用户消息
  * @param text 消息文本
+ *  @param hasAudio 是否包含音频
+ * @param audioData 可选的音频数据
  */
-const addUserMessage = (text: string) => {
-  if (!text.trim()) return
+const addUserMessage = (text: string, hasAudio = false, audio_data_base64 = '') => {
+  if (!text.trim()&&!hasAudio) return
   
   const message: ChatMessage = {
     id: Date.now(),
     text,
     sender: 'user',
-    timestamp: new Date()
+    timestamp: new Date(),
+    hasAudio,
+    audioData:audio_data_base64
   }
-  
+
   chatHistory.push(message)
   messageInput.value = ''
   
   // 通过WebSocket发送消息到后端
   if (wsService.isConnected.value) {
-    wsService.send('text_input', { text })
+    if(hasAudio==true){
+      wsService.send('audio_input', { audio_data_base64 })
+    }else{
+      wsService.send('text_input', { text })
+    }
   } else {
     console.warn('WebSocket未连接，使用本地模拟回复')
     // 如果WebSocket未连接，使用本地模拟回复（保留原有功能作为备用）
@@ -272,6 +409,7 @@ const toggleChatHistory = () => {
 const formatTime = (date: Date) => {
   return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`
 }
+
 
 // ================= 生命周期钩子 =================
 /**
@@ -407,6 +545,20 @@ onUnmounted(() => {
           class="message-input"
         />
         <button @click="addUserMessage(messageInput)" class="send-button">发送</button>
+        <button
+          @click="toggleRecording"
+          class="voice-button"
+          :class="{ 'recording': isRecording }"
+          :title="isRecording ? '停止录音' : '开始录音'"
+        >
+          {{ isRecording ? '🛑' : '🎤' }}
+        </button>
+      </div>
+
+      <!-- 录音状态指示器 -->
+      <div v-if="isRecording" class="recording-status">
+        <div class="recording-indicator"></div>
+        <span>录音中... {{ recordingTime }}秒</span>
       </div>
       
       <!-- 历史记录按钮 -->
@@ -727,5 +879,49 @@ onUnmounted(() => {
   line-height: 1.4;
   display: flex;
   align-items: center;
+}
+</style>
+
+<style>
+/* 语音按钮样式 */
+.voice-button {
+  padding: 10px 15px;
+  background-color: #4a86e8;
+  color: white;
+  border: none;
+  border-radius: 0 5px 5px 0;
+  cursor: pointer;
+  font-size: 1em;
+  transition: all 0.3s;
+  margin-left: 2px;
+}
+
+.voice-button:hover {
+  background-color: #3a76d8;
+}
+
+.voice-button.recording {
+  background-color: #ff0000;
+  animation: pulse 1s infinite;
+}
+
+.recording-status {
+  position: absolute;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background-color: rgba(255, 0, 0, 0.8);
+  color: white;
+  padding: 8px 15px;
+  border-radius: 20px;
+  display: flex;
+  align-items: center;
+  font-size: 0.9em;
+}
+
+@keyframes pulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
 }
 </style>

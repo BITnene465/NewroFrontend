@@ -35,12 +35,13 @@ const app = new Application({
 })
 let live2DModel: any = null
 
+
 // 测试功能区
 const testStatus = ref('等待初始化')
 const expressionIndex = ref(0)
 const motionIndex = ref(0)
 const expressionList = ['exp_01', 'exp_02', 'exp_03', 'exp_04', 'exp_05', 'exp_06', 'exp_07', 'exp_08']
-const motionGroups = ['Idle']
+const motionGroups = ['Idle',"TapBody"]
 
 // 口型测试参数
 const lipSyncInput = ref('')
@@ -132,7 +133,7 @@ const startLipSync = () => {
     if (currentLipSyncFrame.value >= lipSyncFrames.value.length) {
       currentLipSyncFrame.value = 0 // 循环播放
     }
-  }, 100)
+  }, 60)
 }
 
 /**
@@ -214,10 +215,10 @@ const playMotion = () => {
   if (motionDefinitions) {
     // 尝试使用指定的动作组
     const group = motionGroups[motionIndex.value % motionGroups.length]
-    const no = motionIndex.value > 1 ? 1 : 0
+    const no = Math.floor(Math.random() *motionIndex.value)
     
     try {
-      live2DModel.motion(group, no, 3)
+      live2DModel.motion("TapBody" ,5, 3)
       testStatus.value = `播放动作: ${group}-${no}`
       console.log(`播放动作: ${group}-${no}`)
     } catch (e) {

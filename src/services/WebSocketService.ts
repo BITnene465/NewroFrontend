@@ -3,6 +3,7 @@ import { ref } from 'vue'
 export interface WSMessage {
   type: 'text_input' | 'audio_input' | 'ai_response' | 'system_status'
   payload: {
+    emotion?:string
     text?: string
     audio_encoded_base64?: string
     session_id: string
@@ -73,7 +74,7 @@ export class WebSocketService {
     }
   }
   
-  send(type: 'text_input' | 'audio_input', payload: { text?: string; audio_encoded_base64?: string }): boolean {
+  send(type: 'text_input' | 'audio_input', payload: { text?: string; audio_data_base64?: string }): boolean {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
       console.error('WebSocket未连接，无法发送消息')
       return false

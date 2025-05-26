@@ -78,7 +78,11 @@
 			"Target": "Parameter",
 			"Name": "LipSync",
 			"Ids": [
-				"ParamA"
+				"ParamA",
+				"ParamI", 
+				"ParamU", 
+				"ParamE", 
+				"ParamO"
 			]
 		},
 		{
