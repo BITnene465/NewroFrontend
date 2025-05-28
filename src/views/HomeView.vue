@@ -55,7 +55,7 @@ function navigateToLive2d() {
     <div class="about-section">
       <h2>关于本项目</h2>
       <p>本项目旨在结合 Live2D 模型和人工智能，创建一个可交互的虚拟伙伴。</p>
-      <p>技术栈: Vue3 + TypeScript + Easy-Live2D</p>
+      <p>技术栈: Vue3 + TypeScript + Pixi</p>
     </div>
   </div>
 </template>

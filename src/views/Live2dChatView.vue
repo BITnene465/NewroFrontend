@@ -3,7 +3,7 @@
 import { Application } from 'pixi.js'
 import * as PIXI from 'pixi.js'
 import { Live2DModel } from 'pixi-live2d-display/cubism4'
-import { onMounted, onUnmounted, ref, reactive } from 'vue'
+import { onMounted, onUnmounted, ref, reactive, onUpdated, nextTick } from 'vue'
 import { WebSocketService, type WSMessage } from '../services/WebSocketService'
 import { AudioService } from '../services/AudioService'
 
@@ -58,6 +58,52 @@ const mediaRecorder = ref<MediaRecorder | null>(null)
 const audioChunks = ref<Blob[]>([])
 const recordingTime = ref(0)
 let recordingInterval: number | null = null
+
+//打字机动画效果
+const dialogTextRef = ref<HTMLElement | null>(null);
+let typingTimeout: number | null = null;
+const lastTypedMessageId = ref<string | number | null>(null);
+
+function typeTextToDOM(text: string, speed = 50) {
+  if (!dialogTextRef.value) return;
+
+  // 清空上一次内容
+  dialogTextRef.value.innerText = '';
+  let i = 0;
+
+  function type() {
+    if (i < text.length) {
+      dialogTextRef.value!.innerText += text[i++];
+      typingTimeout = window.setTimeout(type, speed);
+    }
+  }
+
+  type();
+}
+
+onUpdated(() => {
+  nextTick(() => {
+    const lastMessage = chatHistory[chatHistory.length - 1];
+
+    if (!lastMessage || lastMessage.id === lastTypedMessageId.value) return;
+
+    lastTypedMessageId.value = lastMessage.id;
+    typeTextToDOM(lastMessage.text); 
+
+  });
+});
+
+function skipTyping() {
+  if (typingTimeout) {
+    clearTimeout(typingTimeout);
+    typingTimeout = null;
+  }
+  const last = chatHistory[chatHistory.length - 1];
+  if (dialogTextRef.value && last) {
+    dialogTextRef.value.innerText = last.text;
+  }
+}
+
 
 
 // ================= PIXI 应用 =================
@@ -134,7 +180,7 @@ const processAndSendAudio = async (audioBlob: Blob) => {
     reader.onload = () => {
       const base64Data = (reader.result as string).split(',')[1]
       
-      // 添加到聊天历史并通过WebSocket发送
+      // 添加到聊天历史
       addUserMessage('[语音消息]', true, base64Data)
 
       resolve(true)
@@ -520,7 +566,7 @@ onUnmounted(() => {
         <div class="speaker-name" v-if="chatHistory.length > 0">
           {{ chatHistory[chatHistory.length - 1].sender === 'character' ? characterName : 'player' }}
         </div>
-        <div class="dialog-text" v-if="chatHistory.length > 0">
+        <div class="dialog-text" v-if="chatHistory.length > 0" ref="dialogTextRef" @click="skipTyping">
           {{ chatHistory[chatHistory.length - 1].text }}
           <!-- 语音播放按钮 -->
           <button 
