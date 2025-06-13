@@ -1,6 +1,6 @@
 # Live2D Vue3 PIXI 集成项目
 
-并使用 PIXI.js 进行渲染。它提供了实时口型同步、模型动作控制和参数调整等功能。
+使用 PIXI.js + pixi-live2d-display 对 live2d 进行渲染。它提供了实时口型同步、模型动作控制和参数调整等功能。
 
 ## 功能
 
@@ -53,33 +53,6 @@
     npm run build
     npm run preview
     ```
-
-## 使用说明 (`TestView.vue`)
-
-`TestView.vue` 页面提供了以下控件和功能：
-
-*   **模型加载**: 页面加载时会自动加载默认的 Live2D 模型 (`Mao`).
-*   **动作播放**:
-    *   使用 "Play Motion" 下拉菜单选择并播放不同的模型动作。
-    *   "Toggle Motion Pause" 按钮：点击此按钮可以暂停或恢复模型的所有内置动作和自动行为（眨眼、呼吸、物理效果）。当按钮显示为 "Resume Motion" (红色背景) 时，模型处于暂停状态。
-*   **表情切换**:
-    *   使用 "Set Expression" 下拉菜单选择并应用不同的表情。
-*   **口型同步**:
-    *   **音频驱动**:
-        *   点击 "Start Lip Sync" 按钮开始通过麦克风进行实时口型同步。浏览器可能会请求麦克风权限。
-        *   口型同步激活时，模型会根据您的声音改变嘴型。
-        *   点击 "Stop Lip Sync" 按钮停止。
-    *   **预设数据驱动**:
-        *   "Lip Sync Test Data" 部分提供了几个按钮 ("Say Hello", "Full Dialogue")，点击后会播放预设的口型动画数据。
-*   **手动口型控制**:
-    *   "Real-time Lip Control" 部分提供了五个滑块，分别对应 `ParamA`, `ParamI`, `ParamU`, `ParamE`, `ParamO`。
-    *   拖动滑块可以实时改变模型的嘴型。
-    *   "Reset Lip Params" 按钮可以将所有手动调整的口型参数重置为 0。
-*   **状态显示**:
-    *   页面顶部会显示当前模型的状态，包括：
-        *   Motion Paused: 模型动作是否已暂停。
-        *   Lip Sync Active: 音频口型同步是否正在运行。
-        *   Real-time Lip Control Active: 手动口型控制是否被激活（即是否有滑块的值不为0）。
 
 ## 已知问题和未来工作
 
